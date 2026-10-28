@@ -5,6 +5,8 @@
 # The app icon is build/icon.png, rendered from build/icon.svg.
 appId: org.tabello.app
 productName: TaBello
+# Shown as the publisher and copyright in the installers and in the app's About box.
+copyright: Copyright © 2026 JackF007
 directories:
   buildResources: build
   output: release/${version}
