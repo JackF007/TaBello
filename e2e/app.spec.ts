@@ -269,7 +269,7 @@ test('offers to download the separation model', async () => {
   await about.getByRole('button', { name: 'Close' }).click();
   await expect(about).toBeHidden();
 
-  const remove = page.getByRole('button', { name: /Remove the separation model/ });
+  const remove = page.getByRole('button', { name: /Remove Demucs/ });
   if (await remove.isVisible()) {
     await remove.click();
     await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
