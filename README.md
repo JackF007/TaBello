@@ -74,7 +74,8 @@ check for new versions, which you can turn off.)
 - **Play along with the original recording** (audio or video): the score follows it.
 - **See it on the neck**: under the player, a fretboard drawn to scale lights each note where it is
   played, in its string's color, as it sounds (*Neck* hides it); while editing it shows the selected note.
-- **Loop and slow down**: select bars to loop a passage, and lower the speed without changing the pitch.
+- **Loop and slow down**: select bars to loop a passage, and lower the speed (50–90%) without changing
+  the pitch; a *Count-in* bar of clicks lets you come in on time.
 - **Transpose** (from the key's menu), to suit a voice or a capo, a semitone at a time. With *Same shapes* the tab and
   chord shapes stay the same and the capo moves (capo on the 2nd fret: the song sounds a tone higher);
   without it the part is refingered in the new key.
@@ -83,8 +84,10 @@ check for new versions, which you can turn off.)
 
 - **Edit by taking the notes**: click a note on the staff or the tab to hear it, and drag it where it
   belongs — on the staff it lands on the line or space you drop it on, on the tab it moves to another
-  string (the same note, played elsewhere), sideways it moves in time. A lens shows what it becomes as
-  you drag, and you hear the new note. Undo, or restore the detected notes, at any time.
+  string (the same note, played elsewhere), sideways it moves in time. A lens magnifies the staff where
+  it lands, ledger lines included, and names the note; you hear the new note. Choose its value (whole,
+  half, quarter, eighth, sixteenth, dotted or not), or move it to another place on the neck by picking
+  one of the dashed circles there. Undo, or restore the detected notes, at any time.
 - **Export** to Guitar Pro 7 (`.gp` — opens in Guitar Pro, MuseScore, TuxGuitar), MIDI (`.mid`) and
   alphaTex.
 - **A local library** of all your transcriptions, settings and edits included.
@@ -151,8 +154,10 @@ You can also run TaBello from source (see [Development](#development)).
      slow it down (the recording keeps its pitch);
    - **fix a note by taking it**: click it to hear it (the cursor moves there too), then **drag it** —
      on the staff up or down to the line or space it should be on, on the tab onto another string,
-     sideways to move it in time. The bar above the score shows the selected note: − and + move it by a
-     semitone, *Also at* lists where else on the neck the same note is played. Keys: ↑/↓ semitones,
+     sideways to move it in time. The bar above the score (it stays in sight while you scroll) shows the
+     selected note: − and + move it by a semitone, the note shapes set its value (a value longer than
+     the time before the next note is greyed out), *Also at* lists where else on the neck the same note
+     is played — also shown on the neck as dashed circles to click. Keys: ↑/↓ semitones,
      Alt+↑/↓ another string, digits type a fret, Delete removes it, Esc deselects, Ctrl+Z undoes. While
      you follow the original recording, an edit switches the player to the transcription, so you hear
      it. *Restore detected notes* brings back the original transcription.
