@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, ChevronDown, Download, Loader2, Minus, Plus, RotateCcw, Sparkles, Timer, Trash2, Undo2, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Download, History, Loader2, Minus, Plus, Sparkles, Timer, Trash2, Undo2, X } from 'lucide-react';
 import InstrumentIcon from '@/components/InstrumentIcon';
 import NoteValueIcon from '@/components/NoteValueIcon';
 import ScoreView, { type NoteDrag } from '@/components/ScoreView';
 import SwitchPartDialog from '@/components/SwitchPartDialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -106,7 +116,15 @@ const SLOT_NAMES: Record<string, string> = { '0.25': 'sixteenth', '0.5': 'eighth
 const ProjectEditor = ({ project }: { project: Project }) => {
   const [settings, setSettings] = useState<ProjectSettings>(project.settings);
   const [notes, setNotes] = useState<NoteEvent[]>(project.notes);
-  const [edited, setEdited] = useState(project.edited);
+  // Versions of the notes: the one shown, and its notes. Edits are a draft (kept on disk, so nothing
+  // is lost) until they are saved as a version.
+  const [versions, setVersions] = useState(project.versions);
+  const [currentVersion, setCurrentVersion] = useState(project.currentVersion);
+  const [baseNotes, setBaseNotes] = useState(project.baseNotes);
+  const unsaved = useMemo(() => JSON.stringify(notes) !== JSON.stringify(baseNotes), [notes, baseNotes]);
+  const versionName = currentVersion === null ? 'Detected' : (versions.find((v) => v.id === currentVersion)?.name ?? 'Version');
+  /** A version asked for while there are unsaved changes (undefined: none). */
+  const [pendingVersion, setPendingVersion] = useState<string | null | undefined>(undefined);
   const [history, setHistory] = useState<NoteEvent[][]>([]);
   const [selected, setSelected] = useState<NoteLocation | null>(null);
   /** An edited note to select again once the tab is rearranged (an index into the sounding notes). */
@@ -218,7 +236,6 @@ const ProjectEditor = ({ project }: { project: Project }) => {
 
   const saveNotes = (next: NoteEvent[]) => {
     setNotes(next);
-    setEdited(true);
     window.clearTimeout(notesTimer.current);
     notesTimer.current = window.setTimeout(async () => {
       const result = await requireApi().updateProjectNotes(project.id, next);
@@ -355,18 +372,50 @@ const ProjectEditor = ({ project }: { project: Project }) => {
     saveNotes(previous);
   };
 
-  const restoreDetected = async () => {
+  /** Saves the notes on screen as a new version: the OK that confirms the edits. */
+  const saveVersion = async () => {
     window.clearTimeout(notesTimer.current);
-    const result = await requireApi().resetProjectNotes(project.id);
+    const result = await requireApi().saveNoteVersion(project.id, notes);
     if (!result.ok) {
-      toast({ title: 'Could not restore the notes', description: result.error.message, variant: 'destructive' });
+      toast({ title: 'Could not save the version', description: result.error.message, variant: 'destructive' });
+      return false;
+    }
+    setVersions(result.value.versions);
+    setCurrentVersion(result.value.currentVersion);
+    setBaseNotes(notes);
+    const saved = result.value.versions.find((v) => v.id === result.value.currentVersion);
+    toast({ title: `Saved as ${saved?.name ?? 'a new version'}`, description: 'Pick it again any time from Versions.' });
+    void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    return true;
+  };
+
+  /** Back to the current version's notes (undoable). */
+  const discardChanges = () => {
+    setHistory((h) => [...h.slice(-99), notes]);
+    setSelected(null);
+    saveNotes(baseNotes);
+  };
+
+  const openVersion = async (id: string | null) => {
+    window.clearTimeout(notesTimer.current);
+    const result = await requireApi().loadNoteVersion(project.id, id);
+    if (!result.ok) {
+      toast({ title: 'Could not open the version', description: result.error.message, variant: 'destructive' });
       return;
     }
-    setHistory((h) => [...h.slice(-99), notes]);
     setNotes(result.value);
-    setEdited(false);
+    setBaseNotes(result.value);
+    setCurrentVersion(id);
+    setHistory([]);
     setSelected(null);
     void queryClient.invalidateQueries({ queryKey: ['projects'] });
+  };
+
+  /** Opens a version, asking first what to do with unsaved changes. */
+  const chooseVersion = (id: string | null) => {
+    if (id === currentVersion && !unsaved) return;
+    if (unsaved) setPendingVersion(id);
+    else void openVersion(id);
   };
 
   // Keyboard editing: arrows move by a semitone (or between strings with Alt), digits type a fret.
@@ -375,6 +424,11 @@ const ProjectEditor = ({ project }: { project: Project }) => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (unsaved) void saveVersion();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && history.length > 0) {
         e.preventDefault();
         undo();
@@ -413,7 +467,9 @@ const ProjectEditor = ({ project }: { project: Project }) => {
         format === 'midi' ? toMidi(part.notes, { title: project.title, bpm: bpm * meter.quartersPerBeat, instrument }, arrangement)
         : format === 'gp' ? toGuitarPro(tex)
         : new TextEncoder().encode(tex);
-      const result = await requireApi().exportFile({ format, suggestedName: project.title, data });
+      // The file is named after the version exported (what is on screen).
+      const suggestedName = `${project.title}${currentVersion === null ? '' : ` (${versionName})`}${unsaved ? ' (edited)' : ''}`;
+      const result = await requireApi().exportFile({ format, suggestedName, data });
       if (!result.ok) throw new Error(result.error.message);
       if (result.value) toast({ title: 'Exported', description: result.value });
     } catch (e) {
@@ -441,11 +497,85 @@ const ProjectEditor = ({ project }: { project: Project }) => {
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="mt-7 h-11 rounded-full px-4" aria-label="Versions" title="The versions of the notes you saved">
+              <History className="h-4 w-4 mr-2" aria-hidden />
+              <span data-testid="version-name">{versionName}</span>
+              {unsaved && (
+                <span className="ml-1.5 h-2 w-2 rounded-full bg-gh-yellow" title="Unsaved changes" aria-label="with unsaved changes" />
+              )}
+              <ChevronDown className="h-4 w-4 ml-1 opacity-50" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuLabel className="font-normal text-muted-foreground">Versions of the notes</DropdownMenuLabel>
+            {[...versions].reverse().map((version) => (
+              <DropdownMenuItem key={version.id} onSelect={() => chooseVersion(version.id)} className="gap-2">
+                <Check className={`h-4 w-4 ${version.id === currentVersion ? '' : 'invisible'}`} aria-hidden />
+                <span className="font-medium">{version.name}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {formatDate(version.createdAt)} · {version.noteCount} notes
+                </span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuItem onSelect={() => chooseVersion(null)} className="gap-2">
+              <Check className={`h-4 w-4 ${currentVersion === null ? '' : 'invisible'}`} aria-hidden />
+              <span className="font-medium">Detected</span>
+              <span className="ml-auto text-xs text-muted-foreground">as TaBello transcribed it</span>
+            </DropdownMenuItem>
+            {unsaved && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => void saveVersion()} className="gap-2 text-gh-yellow">
+                  <Check className="h-4 w-4" aria-hidden /> Save the changes as a new version
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <AlertDialog open={pendingVersion !== undefined} onOpenChange={(open) => !open && setPendingVersion(undefined)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your changes to {versionName === 'Detected' ? 'the detected notes' : versionName} are not saved as a version yet. Save them before
+                opening the other version, or discard them?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const target = pendingVersion;
+                  setPendingVersion(undefined);
+                  if (target !== undefined) void openVersion(target);
+                }}
+              >
+                Discard them
+              </Button>
+              <AlertDialogAction
+                onClick={async () => {
+                  const target = pendingVersion;
+                  setPendingVersion(undefined);
+                  if (target !== undefined && (await saveVersion())) void openVersion(target);
+                }}
+              >
+                Save, then open
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button className="btn-fire mt-7 h-11 rounded-full px-6">
               <Download className="h-4 w-4 mr-2" /> Export
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuLabel className="font-normal text-muted-foreground" data-testid="export-version">
+              Exports {versionName === 'Detected' ? 'the detected notes' : versionName}
+              {unsaved && ', with your unsaved changes'}
+            </DropdownMenuLabel>
             {EXPORTS.map(({ format, label, use }) => (
               <DropdownMenuItem key={format} onSelect={() => void exportAs(format)} className="flex-col items-start gap-0.5 py-2">
                 <span className="font-medium">{label}</span>
@@ -811,17 +941,18 @@ const ProjectEditor = ({ project }: { project: Project }) => {
                   <Undo2 className="h-4 w-4 mr-1" /> Undo
                 </Button>
               )}
-              {edited && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-full"
-                  onClick={() => void restoreDetected()}
-                  aria-label="Restore detected notes"
-                  title="Restore detected notes: discard all edits"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                </Button>
+              {unsaved && (
+                <>
+                  <span className="flex items-center gap-1.5 text-sm text-gh-yellow" data-testid="unsaved">
+                    <span className="h-2 w-2 rounded-full bg-gh-yellow" aria-hidden /> Unsaved changes
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={discardChanges} title={`Back to ${versionName === 'Detected' ? 'the detected notes' : versionName}`}>
+                    Discard
+                  </Button>
+                  <Button size="sm" className="btn-fire h-8 rounded-full px-4" onClick={() => void saveVersion()} title="Keep these notes as a new version (Ctrl+S)">
+                    <Check className="h-4 w-4 mr-1" /> Save version
+                  </Button>
+                </>
               )}
             </div>
           </>
@@ -849,6 +980,9 @@ const ProjectPage = () => {
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     },
+    // Read from disk at every visit: the editor starts from what it is given, and a copy cached from
+    // an earlier visit would lack the edits and versions made since.
+    gcTime: 0,
   });
 
   if (isLoading) {
