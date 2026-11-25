@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AlphaTabApi, LayoutMode, LogLevel, model, NotationElement, PlayerMode, ScrollMode, synth } from '@coderline/alphatab';
-import { AudioLines, Guitar, Loader2, Pause, Play, Repeat, Square, Timer, X } from 'lucide-react';
+import { AudioLines, Guitar, Hourglass, Loader2, Pause, Play, Repeat, Square, Timer, X } from 'lucide-react';
 import Equalizer from '@/components/Equalizer';
 import Fretboard, { type FretboardNote } from '@/components/Fretboard';
 import { Button } from '@/components/ui/button';
@@ -39,8 +39,12 @@ interface ScoreViewProps {
    * recording cannot sound an edit).
    */
   editKey?: number;
-  /** The instrument's neck, to show where the notes being played are: open-string names, lowest first. */
-  neck?: { strings: string[]; capo: number; frets: number };
+  /**
+   * The instrument's neck, to show where the notes being played are: open-string names, lowest
+   * first. With a note selected, `alternatives` are the other places it can be played (frets from
+   * the nut), and picking one calls `onPick` with its string.
+   */
+  neck?: { strings: string[]; capo: number; frets: number; alternatives?: { string: number; fret: number }[]; onPick?: (string: number) => void };
   /** Extra controls for the transport bar. */
   controls?: ReactNode;
   /** An extra toolbar row below the transport bar. */
@@ -65,10 +69,26 @@ const STAFF_SPACE = 9;
 /** A line or a space of the staff, and the distance between two strings of the tab, in pixels. */
 const STAFF_STEP = (STAFF_SPACE * SCALE) / 2;
 const TAB_LINE = Math.floor(STAFF_SPACE * 1.5) * SCALE;
+/**
+ * The ledger lines a note at height `y` needs, given the staff's five lines (top first): one every
+ * line space beyond the staff, up to the note.
+ */
+function ledgerLines(staff: number[], y: number): number[] {
+  if (staff.length < 5) return [];
+  const gap = (staff[4] - staff[0]) / 4;
+  const lines: number[] = [];
+  for (let line = staff[0] - gap; line >= y - gap / 4; line -= gap) lines.push(line);
+  for (let line = staff[4] + gap; line <= y + gap / 4; line += gap) lines.push(line);
+  return lines;
+}
+
 /** How far from a note head a press still takes the note. */
 const HIT_SLOP = 6;
 
-const SPEEDS = ['0.5', '0.75', '1'];
+const SPEEDS = ['0.5', '0.6', '0.75', '0.9', '1'];
+/** The lens: its radius in pixels, and how much it magnifies. */
+const LENS_RADIUS = 70;
+const LENS_ZOOM = 2.2;
 /** Pixels of the score kept in sight above the line being played. */
 const SCROLL_CONTEXT = 140;
 
@@ -116,6 +136,8 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [metronome, setMetronome] = useState(false);
+  /** A bar of clicks before playing starts. */
+  const [countIn, setCountIn] = useState(false);
   const [showNeck, setShowNeck] = useState(true);
   /** Notes sounding now (from the playback cursor), and the one selected for editing. */
   const [playing, setPlaying] = useState<FretboardNote[]>([]);
@@ -131,6 +153,9 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
   const [dragTip, setDragTip] = useState<{ x: number; y: number; text: string } | null>(null);
   /** Where a dragged note would land, drawn over the score, and its moment when moved in time. */
   const [ghost, setGhost] = useState<Box | null>(null);
+  /** The score's drawing under a dragged note, shown magnified around it. */
+  const [lens, setLens] = useState<(Box & { html: string; font: string; on: 'staff' | 'tab'; staff: number[] }) | null>(null);
+  const lensRef = useRef<typeof lens>(null);
   const [target, setTarget] = useState<Box | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -154,6 +179,8 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
     barWidth: number;
     /** The staves of the note's line: the height of the band showing where it goes. */
     system: { y: number; h: number };
+    /** The drawing of that line, copied into the lens once the drag starts. */
+    svg: SVGSVGElement | null;
     dragging?: boolean;
   } | null>(null);
   /** The selected note is to be played once the transcription's sounds are ready. */
@@ -163,8 +190,8 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
   const neckRef = useRef(neck);
   neckRef.current = neck;
   selectedRef.current = selected;
-  const settingsRef = useRef({ metronome, loop, speed });
-  settingsRef.current = { metronome, loop, speed };
+  const settingsRef = useRef({ metronome, countIn, loop, speed });
+  settingsRef.current = { metronome, countIn, loop, speed };
 
   const updateHighlight = useCallback(() => {
     const api = apiRef.current;
@@ -244,8 +271,9 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
     api.postRenderFinished.on(updateHighlight);
     api.playerReady.on(() => {
       if (original) (api.player!.output as synth.IExternalMediaSynthOutput).handler = createMediaHandler(media, () => offsetRef.current);
-      const { metronome: click, loop: looping, speed: rate } = settingsRef.current;
+      const { metronome: click, countIn: counting, loop: looping, speed: rate } = settingsRef.current;
       api.metronomeVolume = click && !original ? 1 : 0;
+      api.countInVolume = counting && !original ? 1 : 0;
       api.isLooping = looping;
       api.playbackSpeed = Number(rate);
       setIsPlayerReady(true);
@@ -366,14 +394,18 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
     /** The note under a point of the score, with the staff it was taken on. */
     const noteAt = (x: number, y: number) => {
       const lookup = apiRef.current?.boundsLookup;
-      const beat = lookup?.getBeatAtPos(x, y);
-      if (!lookup || !beat) return null;
-      const heads = (lookup.findBeats(beat) ?? []).flatMap((b) => b.notes ?? []);
-      const near = (n: (typeof heads)[number]) => {
-        const box = n.noteHeadBounds;
-        return Math.max(box.x - x, x - box.x - box.w, 0) + Math.max(box.y - y, y - box.y - box.h, 0);
-      };
-      const hit = heads.filter((n) => near(n) <= HIT_SLOP).sort((a, b) => near(a) - near(b))[0];
+      if (!lookup) return null;
+      const near = (box: { x: number; y: number; w: number; h: number }) =>
+        Math.max(box.x - x, x - box.x - box.w, 0) + Math.max(box.y - y, y - box.y - box.h, 0);
+      // Every note head of the bar under the point, in all voices: a melody note and the bass note
+      // under it share a moment, and alphaTab's own lookup finds only one of their beats.
+      const heads = lookup.staffSystems
+        .filter((system) => near({ ...system.realBounds, x }) <= HIT_SLOP)
+        .flatMap((system) => system.bars.filter((bar) => near({ ...bar.realBounds, y }) <= HIT_SLOP))
+        .flatMap((bar) => bar.bars)
+        .flatMap((bar) => bar.beats)
+        .flatMap((beat) => beat.notes ?? []);
+      const hit = heads.filter((n) => near(n.noteHeadBounds) <= HIT_SLOP).sort((a, b) => near(a.noteHeadBounds) - near(b.noteHeadBounds))[0];
       if (!hit) return null;
       // The same note on both staves: the notation's head is above the tab's number.
       const same = heads.filter((n) => n.note === hit.note).sort((a, b) => a.noteHeadBounds.y - b.noteHeadBounds.y);
@@ -409,7 +441,13 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
       api.settings.player.enableUserInteraction = false;
       const { note, beat, on, head, barWidth, system } = found;
       const location = { bar: beat.voice.bar.index, beat: beat.index, string: note.string - 1, voice: beat.voice.index };
-      pressRef.current = { x: e.clientX, y: e.clientY, location, on, head, beat, barWidth: barWidth || 1, system };
+      // The drawing of the line pressed (alphaTab draws the score in several pieces).
+      const svg =
+        [...container.querySelectorAll('svg')].find((piece) => {
+          const r = piece.getBoundingClientRect();
+          return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        }) ?? null;
+      pressRef.current = { x: e.clientX, y: e.clientY, location, on, head, beat, barWidth: barWidth || 1, system, svg };
       noteClickRef.current?.(location);
     };
     const onMove = (e: PointerEvent) => {
@@ -428,6 +466,33 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
       const lift = drag.steps * (press.on === 'staff' ? STAFF_STEP : TAB_LINE);
       const x = press.head.x + (e.clientX - press.x);
       setGhost({ ...press.head, x, y: press.head.y - lift });
+      if (!lensRef.current) {
+        // The score around the note, magnified: its drawing is copied once, with its music font.
+        const origin = container.getBoundingClientRect();
+        const box = press.svg?.getBoundingClientRect() ?? origin;
+        const glyph = press.svg?.querySelector('.at');
+        // The five lines of the staff at the note (thin lines across its bar, wider than a ledger
+        // line; the staff's are above the tab's), to draw ledger lines in the lens for a note
+        // dragged above or below them.
+        const noteX = origin.left + press.head.x + press.head.w / 2;
+        const lines = [...(press.svg?.querySelectorAll('rect') ?? [])]
+          .map((rect) => rect.getBoundingClientRect())
+          .filter((r) => r.height < 2.5 && r.width > press.head.w * 3 && r.left <= noteX && r.right >= noteX)
+          .map((r) => r.top + r.height / 2 - origin.top)
+          .sort((a, b) => a - b)
+          .filter((y, i, all) => i === 0 || y - all[i - 1] > 1);
+        lensRef.current = {
+          html: press.svg?.outerHTML ?? '',
+          x: box.left - origin.left,
+          y: box.top - origin.top,
+          w: box.width,
+          h: box.height,
+          font: glyph ? getComputedStyle(glyph).fontFamily : '',
+          on: press.on,
+          staff: lines.length >= 5 ? lines.slice(0, 5) : [],
+        };
+        setLens(lensRef.current);
+      }
       setDragTip({ x: x + press.head.w / 2, y: press.head.y - lift + press.head.h / 2, text: dragRef.current.dragLabel?.(press.location, drag) ?? '' });
       setTarget(Math.abs(e.clientX - press.x) > press.head.w ? { x: x - 6, y: press.system.y - 6, w: press.head.w + 12, h: press.system.h + 12 } : null);
     };
@@ -438,6 +503,8 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
       pressRef.current = null;
       setDragTip(null);
       setGhost(null);
+      lensRef.current = null;
+      setLens(null);
       setTarget(null);
       container.style.cursor = '';
       const api = apiRef.current;
@@ -471,6 +538,11 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const toggleCountIn = (on: boolean) => {
+    setCountIn(on);
+    if (apiRef.current) apiRef.current.countInVolume = on ? 1 : 0;
+  };
+
   const toggleMetronome = (on: boolean) => {
     setMetronome(on);
     if (apiRef.current) apiRef.current.metronomeVolume = on ? 1 : 0;
@@ -495,7 +567,10 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
   };
 
   return (
-    <div className="panel overflow-hidden">
+    // Clipped, not hidden: the controls can then stay in sight while the page scrolls.
+    <div className="panel overflow-clip">
+      {/* The player's controls and the selected note stay in sight under the app's header. */}
+      <div className="sticky top-[57px] z-30 bg-card/95 backdrop-blur-md">
       <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <Button
           onClick={() => apiRef.current?.playPause()}
@@ -542,6 +617,16 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
           className="h-11 rounded-full px-4 data-[state=on]:bg-secondary data-[state=on]:text-gh-yellow"
         >
           <Timer className="h-4 w-4 mr-1" /> Metronome
+        </Toggle>
+        <Toggle
+          pressed={countIn && source === 'synth'}
+          onPressedChange={toggleCountIn}
+          aria-label="Count-in"
+          title="A bar of clicks before it starts playing, to come in on time"
+          disabled={!isPlayerReady || source === 'original'}
+          className="h-11 rounded-full px-4 data-[state=on]:bg-secondary data-[state=on]:text-gh-yellow"
+        >
+          <Hourglass className="h-4 w-4 mr-1" /> Count-in
         </Toggle>
         {neck && (
           <Toggle
@@ -600,6 +685,7 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
           {notice}
         </p>
       )}
+      </div>
 
       {neck && showNeck && (
         <div className="border-b bg-[#0d0c1b] px-4 py-2">
@@ -608,12 +694,14 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
             colors={STRING_COLORS}
             capo={neck.capo}
             frets={neck.frets}
-            // Playing: the notes sounding (and the selected one). Paused with a note selected: that note alone.
+            // Playing: the notes sounding (and the selected one). Paused with a note selected: that
+            // note, and the other places it can be played, to move it there.
             notes={
               chosen && !isPlaying
-                ? [chosen]
+                ? [chosen, ...(neck.alternatives ?? []).map((a) => ({ ...a, alternative: true }))]
                 : [...playing.filter((n) => !chosen || n.string !== chosen.string || n.fret !== chosen.fret), ...(chosen ? [chosen] : [])]
             }
+            onPick={neck.onPick}
           />
         </div>
       )}
@@ -649,32 +737,65 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
               style={{ left: box.x - 4, top: box.y - 3, width: box.w + 8, height: box.h + 6 }}
             />
           ))}
-          {dragTip && (
-            // A lens on the dragged note, with what it becomes in large letters above it.
-            <div aria-hidden className="pointer-events-none absolute z-20" style={{ left: dragTip.x, top: dragTip.y }}>
-              <div className="absolute -translate-x-1/2 -translate-y-1/2 h-16 w-16 rounded-full border-2 border-gh-yellow/80 bg-[#0d0c1b]/40 shadow-[0_0_24px_4px_rgba(255,214,0,0.35)] backdrop-blur-[1px]" />
+          {lens && dragTip && ghost && (
+            // A lens on the dragged note: the score around where it lands, magnified, with the note there.
+            <div
+              aria-hidden
+              data-testid="drag-lens"
+              className="lens-clone pointer-events-none absolute z-[1001] overflow-hidden rounded-full border-2 border-gh-yellow/80 bg-[#0d0c1b] shadow-[0_0_28px_6px_rgba(255,214,0,0.3)]"
+              style={{ left: dragTip.x - LENS_RADIUS, top: dragTip.y - LENS_RADIUS, width: LENS_RADIUS * 2, height: LENS_RADIUS * 2 }}
+            >
+              {/* Brighter than the score itself, so its lines and spaces read clearly. */}
+              <style>{`.lens-clone .at { font-family: ${lens.font || 'inherit'}; line-height: 1; } .lens-clone svg { filter: brightness(2.2) saturate(0.6); }`}</style>
+              <div
+                className="absolute origin-top-left"
+                style={{
+                  left: LENS_RADIUS - (dragTip.x - lens.x) * LENS_ZOOM,
+                  top: LENS_RADIUS - (dragTip.y - lens.y) * LENS_ZOOM,
+                  width: lens.w,
+                  height: lens.h,
+                  transform: `scale(${LENS_ZOOM})`,
+                }}
+                dangerouslySetInnerHTML={{ __html: lens.html }}
+              />
+              {/* Ledger lines up to the note, when it lands above or below the staff. */}
+              {lens.on === 'staff' &&
+                ledgerLines(lens.staff, dragTip.y).map((y) => (
+                  <div
+                    key={y}
+                    className="absolute h-[2px] bg-[#d6d4e8]"
+                    style={{ left: LENS_RADIUS - ghost.w * LENS_ZOOM, width: ghost.w * 2 * LENS_ZOOM, top: LENS_RADIUS + (y - dragTip.y) * LENS_ZOOM - 1 }}
+                  />
+                ))}
+              {/* The note where it lands: a note head on the staff, its fret number on the tab. */}
+              <div
+                data-testid="drag-ghost"
+                className={`absolute flex items-center justify-center border-2 border-gh-yellow bg-gh-yellow/40 font-display text-base font-bold text-gh-yellow shadow-[0_0_14px_2px_rgba(255,214,0,0.6)] ${
+                  lens.on === 'staff' ? '-rotate-[20deg] rounded-[50%]' : 'rounded-md bg-[#0d0c1b]'
+                }`}
+                style={{
+                  left: LENS_RADIUS - ((ghost.w + (lens.on === 'tab' ? 6 : 0)) * LENS_ZOOM) / 2,
+                  top: LENS_RADIUS - (ghost.h * LENS_ZOOM) / 2,
+                  width: (ghost.w + (lens.on === 'tab' ? 6 : 0)) * LENS_ZOOM,
+                  height: ghost.h * LENS_ZOOM,
+                }}
+              >
+                {lens.on === 'tab' && /fret (\d+)/.exec(dragTip.text)?.[1]}
+              </div>
             </div>
           )}
           {dragTip && (
             <div
               role="status"
               data-testid="drag-tip"
-              className="pointer-events-none absolute z-30 -translate-x-1/2 whitespace-nowrap text-center"
-              style={{ left: dragTip.x, top: dragTip.y - 88 }}
+              className="pointer-events-none absolute z-[1001] -translate-x-1/2 whitespace-nowrap text-center"
+              style={{ left: dragTip.x, top: dragTip.y - LENS_RADIUS - (dragTip.text.includes(' · ') ? 64 : 42) }}
             >
               <div className="font-display text-3xl leading-none text-gh-yellow drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">{dragTip.text.split(' · ')[0]}</div>
               {dragTip.text.includes(' · ') && (
                 <div className="mt-1 rounded-full bg-card/90 px-2 py-0.5 text-xs font-semibold text-foreground">{dragTip.text.split(' · ').slice(1).join(' · ')}</div>
               )}
             </div>
-          )}
-          {ghost && (
-            <div
-              aria-hidden
-              data-testid="drag-ghost"
-              className="pointer-events-none absolute rounded-full border-2 border-dashed border-gh-yellow bg-gh-yellow/30 shadow-[0_0_14px_2px_rgba(255,214,0,0.5)]"
-              style={{ left: ghost.x - 3, top: ghost.y - 2, width: ghost.w + 6, height: ghost.h + 4 }}
-            />
           )}
         </div>
       </div>

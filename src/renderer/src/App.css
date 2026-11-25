@@ -46,3 +46,14 @@
     animation: none;
   }
 }
+
+/* Another place the selected note can be played, on the neck: it lights up under the pointer. */
+.fret-alternative {
+  opacity: 0.75;
+  transition: opacity 120ms ease;
+}
+.fret-alternative:hover,
+.fret-alternative:focus-visible {
+  opacity: 1;
+  outline: none;
+}

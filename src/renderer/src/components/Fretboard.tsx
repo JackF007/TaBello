@@ -8,6 +8,8 @@ export interface FretboardNote {
   ringing?: boolean;
   /** The note selected for editing. */
   selected?: boolean;
+  /** Another place the selected note can be played: picking it moves the note there. */
+  alternative?: boolean;
 }
 
 interface FretboardProps {
@@ -19,6 +21,8 @@ interface FretboardProps {
   /** Frets drawn after the nut. */
   frets: number;
   notes: FretboardNote[];
+  /** Called with the string of an alternative place picked on the neck. */
+  onPick?: (string: number) => void;
 }
 
 const WIDTH = 1000;
@@ -32,7 +36,7 @@ const INLAYS = [3, 5, 7, 9, 15, 17, 19, 21];
  * The neck, drawn to scale (each fret 2^(-1/12) shorter than the one before), with the notes being
  * played lit where the fingers go: the same colors as the tab's strings.
  */
-const Fretboard = ({ strings, colors, capo, frets, notes }: FretboardProps) => {
+const Fretboard = ({ strings, colors, capo, frets, notes, onPick }: FretboardProps) => {
   const id = useId().replace(/:/g, '');
   const count = strings.length;
   const height = TOP * 2 + GAP * (count - 1) + 18;
@@ -49,7 +53,7 @@ const Fretboard = ({ strings, colors, capo, frets, notes }: FretboardProps) => {
       viewBox={`0 0 ${WIDTH} ${height}`}
       className="block w-full select-none"
       role="img"
-      aria-label={notes.length ? `Notes on the neck: ${notes.map((n) => `${strings[n.string]} string, ${n.fret ? `fret ${n.fret}` : 'open'}`).join('; ')}` : 'The neck'}
+      aria-label={notes.some((n) => !n.alternative) ? `Notes on the neck: ${notes.filter((n) => !n.alternative).map((n) => `${strings[n.string]} string, ${n.fret ? `fret ${n.fret}` : 'open'}`).join('; ')}` : 'The neck'}
       data-testid="fretboard"
     >
       <defs>
@@ -113,6 +117,28 @@ const Fretboard = ({ strings, colors, capo, frets, notes }: FretboardProps) => {
         const open = note.fret === capo;
         const cx = open ? (capo > 0 ? wire(capo) + 10 : NUT - 42) : fingerX(note.fret);
         const cy = y(note.string);
+        if (note.alternative) {
+          // Beyond the frets drawn: still offered by the note's bar, not here.
+          if (note.fret > frets) return null;
+          const label = `Move it to the ${strings[note.string]} string, ${open ? 'open' : `fret ${note.fret - capo}`}`;
+          return (
+            <g
+              key={`${note.string}-${note.fret}-a`}
+              role="button"
+              tabIndex={0}
+              aria-label={label}
+              className="fret-alternative cursor-pointer"
+              onClick={() => onPick?.(note.string)}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onPick?.(note.string)}
+            >
+              <title>{label}</title>
+              <circle cx={cx} cy={cy} r="10.5" fill="#0d0c1b" stroke={color} strokeWidth="2" strokeDasharray="3 2.5" />
+              <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="700" fill={color}>
+                {open ? '0' : note.fret - capo}
+              </text>
+            </g>
+          );
+        }
         return (
           <g
             key={`${note.string}-${note.fret}-${note.ringing ? 'r' : 'p'}`}

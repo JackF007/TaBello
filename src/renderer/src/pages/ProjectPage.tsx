@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, ChevronDown, Download, Loader2, Minus, Plus, RotateCcw, Sparkles, Timer, Trash2, Undo2, X } from 'lucide-react';
 import InstrumentIcon from '@/components/InstrumentIcon';
+import NoteValueIcon from '@/components/NoteValueIcon';
 import ScoreView, { type NoteDrag } from '@/components/ScoreView';
 import SwitchPartDialog from '@/components/SwitchPartDialog';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,8 @@ import { requireApi } from '@/lib/api';
 import { useMenuMusic } from '@/lib/menuMusic';
 import { useHandVision } from '@/lib/vision/useHandVision';
 import { formatDate, formatDuration, isVideoFile } from '@/lib/format';
-import { arrange, detectCapo, detectTuning, handAgreement } from '@/lib/music/arrange';
+import { arrange, detectCapo, detectTuning, handAgreement, meterTicks } from '@/lib/music/arrange';
+import { matchesValue, noteSpan, tickTime, valueChoices } from '@/lib/music/length';
 import { applyEdit, findNote, locateSource, otherPositions, staffStep, type NoteEdit, type NoteLocation } from '@/lib/music/edit';
 import { toAlphaTex, toMidi } from '@/lib/music/export';
 import { partNotes } from '@/lib/music/parts';
@@ -246,6 +248,21 @@ const ProjectEditor = ({ project }: { project: Project }) => {
   const selectedNote = selected && findNote(arrangement, selected);
   const editContext = { tuning: tuning.strings, capo, frets: instrument.frets };
 
+  // The selected note's value (whole, half…): how long it is written, and how long it may be.
+  const span = selected ? noteSpan(arrangement, selected) : null;
+  const slotTicks = meterTicks(meter).slot;
+  // Plain or dotted values on offer: as the note is, unless the dot was just switched for it.
+  const spanKey = selected && span ? `${selected.voice ?? 0}-${selected.bar}-${selected.beat}-${selected.string}-${span.length}` : '';
+  const [dotChoice, setDotChoice] = useState<{ key: string; dotted: boolean } | null>(null);
+  const dotted = dotChoice?.key === spanKey ? dotChoice.dotted : !!span && valueChoices(true).some((choice) => matchesValue(span.length, choice));
+  const setDotted = (on: boolean) => setDotChoice({ key: spanKey, dotted: on });
+  /** Gives the selected note (and the notes played with it) a value, in ticks. */
+  const setValue = (ticks: number) => {
+    if (!selected || !span) return;
+    const beat = (selected.voice === 1 && arrangement.bass ? arrangement.bass : arrangement.bars)[selected.bar][selected.beat];
+    edit({ type: 'length', end: tickTime(arrangement, span.bar, span.tick + ticks) }, beat.notes.flatMap((n) => n.sources));
+  };
+
   /** Why an edit cannot be played, in words. */
   const unplayable = (change: NoteEdit, note: { pitch: number; fret: number }): string => {
     const count = tuning.strings.length;
@@ -256,14 +273,16 @@ const ProjectEditor = ({ project }: { project: Project }) => {
       return `${pitchName(note.pitch)} cannot be played on the ${stringName(change.string, count)} string: it is ${note.pitch < open ? 'lower than the open string' : 'beyond its last fret'}.`;
     }
     if (change.type === 'string') return `Fret ${note.fret} is not on the ${stringName(change.string, count)} string.`;
+    if (change.type === 'length') return 'That value does not fit before the next note.';
     if (change.type === 'move' && change.string !== undefined) return `${pitchName(note.pitch + change.semitones)} cannot be played on the ${stringName(change.string, count)} string.`;
     return `That note is out of the ${instrument.name.toLowerCase()}'s range.`;
   };
 
-  const edit = (change: NoteEdit) => {
-    if (!selected || !selectedNote) return;
+  /** Applies an edit to the selected note (or to `sources`, notes of the part, when given). */
+  const edit = (change: NoteEdit, sources = selectedNote?.sources) => {
+    if (!selected || !selectedNote || !sources) return;
     // The arrangement's notes are the part's: edit the same notes in the whole transcription.
-    const placed = { ...selectedNote, sources: selectedNote.sources.map((k) => part.sources[k]) };
+    const placed = { ...selectedNote, sources: sources.map((k) => part.sources[k]) };
     const result = applyEdit(sounding, placed, selected, change, editContext);
     if (!result) {
       toast({ title: "Can't play that", description: unplayable(change, selectedNote) });
@@ -696,7 +715,12 @@ const ProjectEditor = ({ project }: { project: Project }) => {
         onNoteClick={selectNote}
         selected={selected}
         onNoteDrag={dragNote}
-        neck={neck}
+        neck={{
+          ...neck,
+          // The other places the selected note can be played, to move it there from the neck.
+          alternatives: selected && selectedNote ? otherPositions(selectedNote.pitch, selected.string, editContext).map((o) => ({ string: o.string, fret: o.fret + capo })) : [],
+          onPick: (string: number) => edit({ type: 'string', string, keep: 'pitch' }),
+        }}
         dragLabel={describeDrag}
         previewKey={preview}
         editKey={editCount}
@@ -716,6 +740,43 @@ const ProjectEditor = ({ project }: { project: Project }) => {
                 <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" onClick={() => edit({ type: 'pitch', delta: 1 })} aria-label="Up a semitone" title="Up a semitone (↑)">
                   <Plus className="h-4 w-4" />
                 </Button>
+                {span && (
+                  <div className="flex items-center rounded-full border p-0.5" role="group" aria-label="Note value">
+                    {valueChoices(dotted).map((choice) => {
+                      const fits = choice.ticks <= span.room + 1e-6 && Number.isInteger(choice.ticks / slotTicks);
+                      const current = matchesValue(span.length, choice);
+                      return (
+                        <button
+                          key={choice.value}
+                          type="button"
+                          disabled={!fits}
+                          aria-pressed={current}
+                          aria-label={choice.name}
+                          title={fits ? `${choice.name} (${choice.british})` : `${choice.name}: longer than the time before the next note`}
+                          onClick={() => !current && setValue(choice.ticks)}
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent aria-pressed:bg-gh-yellow/20 aria-pressed:text-gh-yellow"
+                        >
+                          <NoteValueIcon value={choice.value} dotted={choice.dotted} className="h-5 w-4" />
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      aria-pressed={dotted}
+                      aria-label="Dotted"
+                      title="Dotted: half as long again"
+                      onClick={() => {
+                        const base = valueChoices(dotted).find((choice) => matchesValue(span.length, choice));
+                        const next = base && valueChoices(!dotted).find((choice) => choice.value === base.value);
+                        setDotted(!dotted);
+                        if (next && next.ticks <= span.room + 1e-6 && Number.isInteger(next.ticks / slotTicks)) setValue(next.ticks);
+                      }}
+                      className="flex h-7 w-7 items-center justify-center rounded-full text-lg font-bold leading-none text-muted-foreground hover:bg-secondary hover:text-foreground aria-pressed:bg-gh-yellow/20 aria-pressed:text-gh-yellow"
+                    >
+                      ·
+                    </button>
+                  </div>
+                )}
                 {otherPositions(selectedNote.pitch, selected.string, editContext).length > 0 && (
                   <span className="ml-1 text-muted-foreground">Also at</span>
                 )}
@@ -751,8 +812,15 @@ const ProjectEditor = ({ project }: { project: Project }) => {
                 </Button>
               )}
               {edited && (
-                <Button variant="ghost" size="sm" onClick={() => void restoreDetected()} title="Discard all edits">
-                  <RotateCcw className="h-4 w-4 mr-1" /> Restore detected notes
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-full"
+                  onClick={() => void restoreDetected()}
+                  aria-label="Restore detected notes"
+                  title="Restore detected notes: discard all edits"
+                >
+                  <RotateCcw className="h-4 w-4" />
                 </Button>
               )}
             </div>
