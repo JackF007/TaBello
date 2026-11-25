@@ -176,6 +176,39 @@ test('transcribes a video into a playable, exportable score', async () => {
   await expect.poll(noteCount).toBeLessThan(before);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect.poll(noteCount).toBe(before);
+
+  // A note's value: the arpeggio's notes follow each other, so each one is as long as it may be
+  // (longer values are offered greyed out); a shorter one leaves a rest after it.
+  await page.locator(`.at-surface svg text:is(${stringColors})`, { hasText: /^\d+$/ }).first().click();
+  const values = page.getByRole('group', { name: 'Note value' });
+  const current = values.locator('button[aria-pressed=true]');
+  await expect(current).toHaveCount(1);
+  const value = await current.getAttribute('aria-label');
+  await expect(values.getByRole('button', { name: 'Whole note' })).toBeDisabled();
+  await values.getByRole('button', { name: 'Sixteenth note' }).click();
+  await expect(values.getByRole('button', { name: 'Sixteenth note' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.locator(`.at-surface svg text:is(${stringColors})`, { hasText: /^\d+$/ }).first().click();
+  await expect(values.locator('button[aria-pressed=true]')).toHaveAttribute('aria-label', value!);
+
+  // The same note elsewhere on the neck: offered by the note's bar, and on the neck itself.
+  const elsewhere = page.locator('[aria-label="Selected note"] button[title^="The same note on the"]');
+  if ((await elsewhere.count()) > 0) {
+    const fretBefore = await page.getByTestId('note-fret').textContent();
+    const pitch = await info.textContent();
+    await elsewhere.first().click();
+    // Another string and fret, the same note.
+    await expect(page.getByTestId('note-fret')).not.toHaveText(fretBefore!);
+    await expect(info).toHaveText(pitch!);
+  }
+
+  // The controls stay in sight while the score is scrolled.
+  await page.mouse.wheel(0, 1200);
+  await expect.poll(async () => (await page.getByRole('button', { name: 'Play' }).boundingBox())!.y).toBeLessThan(140);
+  // A bar of clicks before playing.
+  await page.getByRole('button', { name: 'Count-in' }).click();
+  await expect(page.getByRole('button', { name: 'Count-in' })).toHaveAttribute('aria-pressed', 'true');
+
   await page.getByRole('button', { name: 'Restore detected notes' }).click();
   await expect(page.getByRole('button', { name: 'Restore detected notes' })).toBeHidden();
   await page.keyboard.press('Escape');

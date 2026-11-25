@@ -23,7 +23,9 @@ export type NoteEdit =
    * Dragged in the score: up or down in semitones, earlier or later in the recording, and onto
    * another string when given (dragged on the tab).
    */
-  | { type: 'move'; semitones: number; seconds: number; string?: number };
+  | { type: 'move'; semitones: number; seconds: number; string?: number }
+  /** A note value chosen: the notes end at this time in the recording, written as is. */
+  | { type: 'length'; end: number };
 
 export interface EditContext {
   /** Open strings without capo, in the tuning's physical order. */
@@ -64,6 +66,10 @@ export function applyEdit(
 ): { notes: NoteEvent[]; location: NoteLocation | null } | null {
   const sources = new Set(placed.sources);
   if (edit.type === 'delete') return { notes: notes.filter((_, i) => !sources.has(i)), location: null };
+  if (edit.type === 'length') {
+    if ([...sources].some((i) => notes[i] && edit.end <= notes[i].start)) return null;
+    return { notes: notes.map((note, i) => (sources.has(i) ? { ...note, duration: edit.end - note.start, exactLength: true } : note)), location };
+  }
 
   const open = (string: number) => context.tuning[string] + context.capo;
   const playable = (string: number, pitch: number) =>
