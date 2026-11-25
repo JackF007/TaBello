@@ -8,6 +8,7 @@ import {
   type ExportFormat,
   type IpcResult,
   type NoteEvent,
+  type NoteVersion,
   type Project,
   type ProjectSummary,
   type Preferences,
@@ -267,9 +268,16 @@ export function registerIpcHandlers(isTrustedUrl: (url: string) => boolean): voi
     return (await projects.saveProjectVision(id, vision)) ? { ok: true, value: null } : fail('not-found', 'This project no longer exists.');
   });
 
-  handle(IpcChannels.resetProjectNotes, async (_event, id: unknown): Promise<IpcResult<NoteEvent[]>> => {
-    const notes = typeof id === 'string' ? await projects.resetProjectNotes(id) : null;
-    return notes ? { ok: true, value: notes } : fail('not-found', 'This project no longer exists.');
+  handle(IpcChannels.saveNoteVersion, async (_event, id: unknown, notes: unknown): Promise<IpcResult<{ versions: NoteVersion[]; currentVersion: string }>> => {
+    if (typeof id !== 'string' || !projects.isValidNotes(notes)) return fail('invalid', 'Invalid notes.');
+    const saved = await projects.saveNoteVersion(id, notes);
+    return saved ? { ok: true, value: saved } : fail('not-found', 'This project no longer exists.');
+  });
+
+  handle(IpcChannels.loadNoteVersion, async (_event, id: unknown, versionId: unknown): Promise<IpcResult<NoteEvent[]>> => {
+    if (typeof id !== 'string' || (versionId !== null && typeof versionId !== 'string')) return fail('invalid', 'Invalid version.');
+    const notes = await projects.loadNoteVersion(id, versionId);
+    return notes ? { ok: true, value: notes } : fail('not-found', 'This version no longer exists.');
   });
 
   handle(IpcChannels.deleteProject, async (_event, id: unknown): Promise<IpcResult<void>> => {

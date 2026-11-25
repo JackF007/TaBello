@@ -19,7 +19,8 @@ export const IpcChannels = {
   updateProjectSettings: 'projects:update-settings',
   updateProjectNotes: 'projects:update-notes',
   saveProjectVision: 'projects:save-vision',
-  resetProjectNotes: 'projects:reset-notes',
+  saveNoteVersion: 'projects:save-version',
+  loadNoteVersion: 'projects:load-version',
   deleteProject: 'projects:delete',
   exportFile: 'export:save-file',
   separationModelStatus: 'separation:status',
@@ -210,14 +211,30 @@ export interface Project extends ProjectSummary {
   sourcePath: string;
   /** False when the original audio/video file was moved or deleted. */
   sourceAvailable: boolean;
+  /** The notes on screen, edits included (saved as a draft until a version is saved). */
   notes: NoteEvent[];
-  /** True when the notes were edited by hand (the detected ones can be restored). */
-  edited: boolean;
+  /** Versions of the notes saved by the user, oldest first. */
+  versions: NoteVersion[];
+  /** The version the notes started from: null for the notes as transcribed. */
+  currentVersion: string | null;
+  /** That version's notes: when `notes` differ from them, there are unsaved changes. */
+  baseNotes: NoteEvent[];
   /** A metronome found in the recording. */
   metronome?: ClickTrack;
   /** The fretting hand seen in the video, once watched. */
   vision?: HandVision;
 }
+
+/** A version of a project's notes, saved by the user. */
+export interface NoteVersion {
+  id: string;
+  name: string;
+  createdAt: string;
+  noteCount: number;
+}
+
+/** Most versions kept for one project. */
+export const MAX_VERSIONS = 200;
 
 /** Upper bound on the notes a project can hold (a 15-minute recording yields a few thousand). */
 export const MAX_NOTES = 50_000;
@@ -267,12 +284,15 @@ export interface TabelloApi {
   listProjects(): Promise<ProjectSummary[]>;
   getProject(id: string): Promise<IpcResult<Project>>;
   updateProjectSettings(id: string, settings: ProjectSettings): Promise<IpcResult<ProjectSummary>>;
-  /** Saves hand-edited notes; the notes detected by the transcription are kept for resetProjectNotes. */
+  /** Saves hand-edited notes as a draft; the notes detected by the transcription are kept. */
   updateProjectNotes(id: string, notes: NoteEvent[]): Promise<IpcResult<ProjectSummary>>;
   /** Keeps what watching the video's fretting hand found, so it is not watched again. */
   saveProjectVision(id: string, vision: HandVision): Promise<IpcResult<null>>;
   /** Restores the notes detected by the transcription and returns them. */
-  resetProjectNotes(id: string): Promise<IpcResult<NoteEvent[]>>;
+  /** Saves the notes as a new version, which becomes the current one. */
+  saveNoteVersion(id: string, notes: NoteEvent[]): Promise<IpcResult<{ versions: NoteVersion[]; currentVersion: string }>>;
+  /** Makes a version current (null: the notes as transcribed) and returns its notes. */
+  loadNoteVersion(id: string, versionId: string | null): Promise<IpcResult<NoteEvent[]>>;
   deleteProject(id: string): Promise<IpcResult<void>>;
   /** Shows a save dialog and writes the data. Resolves to the saved path, or null if cancelled. */
   exportFile(request: ExportRequest): Promise<IpcResult<string | null>>;
