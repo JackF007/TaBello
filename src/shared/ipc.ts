@@ -97,6 +97,11 @@ export interface NoteEvent {
   /** Pitch glide at the end of the note, in semitones (positive: upwards). */
   slideOut?: number;
   vibrato?: boolean;
+  /**
+   * Length chosen by hand while editing (a note value): written as is, and not held on to the next
+   * note as detected lengths are.
+   */
+  exactLength?: boolean;
 }
 
 export type TranscriptionStage = 'starting' | 'extracting' | 'separating' | 'transcribing' | 'saving';

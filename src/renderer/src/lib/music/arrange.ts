@@ -115,6 +115,8 @@ interface Chord {
   slot: number;
   endSlot: number;
   pitches: ChordPitch[];
+  /** A length chosen by hand: written as is, not held across a short gap. */
+  exact?: boolean;
 }
 
 interface Fingering {
@@ -216,6 +218,7 @@ function quantize(notes: NoteEvent[], options: ArrangeOptions, meter: Meter, low
     const pitch = foldIntoRange(note.pitch, lowest, highest);
     const chord = bySlot.get(slot) ?? { slot, endSlot, pitches: [] };
     chord.endSlot = Math.max(chord.endSlot, endSlot);
+    if (note.exactLength) chord.exact = true;
     const existing = chord.pitches.find((p) => p.pitch === pitch);
     if (existing) {
       existing.velocity = Math.max(existing.velocity, note.velocity);
@@ -591,6 +594,8 @@ function assignTechniques(notes: NoteEvent[], playable: { chord: Chord }[], chos
 interface VoiceEvent {
   slot: number;
   endSlot: number;
+  /** Its length was chosen by hand (see Chord.exact). */
+  exact?: boolean;
   notes: PlacedNote[];
   /** End slot of each note (same order as notes). */
   ends: number[];
@@ -611,7 +616,7 @@ function layOutVoice(events: VoiceEvent[], meter: Meter, holdSlots = meter.slots
     const start = event.slot * ticks.slot;
     if (start > cursor) splitIntoBeats(cursor, start - cursor, [], meter, beatsByBar);
     const next = events[i + 1]?.slot ?? Math.ceil((event.endSlot + 1e-9) / slotsPerBar) * slotsPerBar;
-    const endSlot = next - event.endSlot < holdSlots ? next : event.endSlot;
+    const endSlot = !event.exact && next - event.endSlot < holdSlots ? next : event.endSlot;
     const end = Math.min(endSlot, next) * ticks.slot;
     splitIntoBeats(start, end - start, event.notes, meter, beatsByBar);
     cursor = end;
@@ -641,10 +646,10 @@ function splitBassVoice(events: VoiceEvent[], meter: Meter): [VoiceEvent[], Voic
   const bass: VoiceEvent[] = [];
   events.forEach((event, i) => {
     const b = bassIndex[i];
-    if (b >= 0) bass.push({ slot: event.slot, endSlot: event.ends[b], notes: [event.notes[b]], ends: [event.ends[b]] });
+    if (b >= 0) bass.push({ slot: event.slot, endSlot: event.ends[b], notes: [event.notes[b]], ends: [event.ends[b]], exact: event.exact });
     const notes = event.notes.filter((_, k) => k !== b);
     const ends = event.ends.filter((_, k) => k !== b);
-    if (notes.length > 0) upper.push({ slot: event.slot, endSlot: Math.max(...ends), notes, ends });
+    if (notes.length > 0) upper.push({ slot: event.slot, endSlot: Math.max(...ends), notes, ends, exact: event.exact });
   });
   return [upper, bass];
 }
@@ -807,6 +812,7 @@ export function arrange(notes: NoteEvent[], options: ArrangeOptions): Arrangemen
   const events: VoiceEvent[] = playable.map(({ chord }, i) => ({
     slot: chord.slot,
     endSlot: chord.endSlot,
+    exact: chord.exact,
     notes: chosen[i].notes,
     ends: chosen[i].notes.map((note) => chord.pitches.find((p) => p.pitch === note.pitch)?.endSlot ?? chord.endSlot),
   }));

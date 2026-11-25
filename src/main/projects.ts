@@ -126,7 +126,7 @@ export function isValidNotes(value: unknown): value is NoteEvent[] {
     value.length <= MAX_NOTES &&
     value.every((note: unknown) => {
       if (typeof note !== 'object' || note === null) return false;
-      const { start, duration, pitch, velocity, string, attack, onset, bend, release, slideIn, slideOut, vibrato } = note as Record<string, unknown>;
+      const { start, duration, pitch, velocity, string, attack, onset, bend, release, slideIn, slideOut, vibrato, exactLength } = note as Record<string, unknown>;
       const optional = (value: unknown, valid: (v: unknown) => boolean) => value === undefined || valid(value);
       const isBoolean = (v: unknown) => typeof v === 'boolean';
       return (
@@ -137,6 +137,7 @@ export function isValidNotes(value: unknown): value is NoteEvent[] {
         optional(slideOut, (v) => isFiniteNumber(v, -24, 24)) &&
         optional(release, isBoolean) &&
         optional(vibrato, isBoolean) &&
+        optional(exactLength, isBoolean) &&
         isFiniteNumber(start, 0, 24 * 3600) &&
         isFiniteNumber(duration, 0, 3600) &&
         Number.isInteger(pitch) &&
