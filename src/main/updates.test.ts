@@ -3,7 +3,7 @@ import { checkForUpdate, compareVersions, newestRelease } from './updates';
 
 const release = (tag: string, extra: Record<string, unknown> = {}) => ({
   tag_name: tag,
-  html_url: `https://github.com/JackF007/TaBello/releases/tag/${tag}`,
+  html_url: `https://github.com/JackF007/taBello/releases/tag/${tag}`,
   draft: false,
   prerelease: tag.includes('-'),
   ...extra,
@@ -23,7 +23,7 @@ describe('update check', () => {
     const releases = [release('v0.1.0-beta.1'), release('v0.1.0-beta.2'), release('v0.1.0'), release('v0.2.0-beta.1'), release('v0.3.0', { draft: true })];
     expect(newestRelease(releases, '0.1.0-beta.1')?.version).toBe('0.2.0-beta.1');
     expect(newestRelease(releases, '0.1.0')).toBeNull();
-    expect(newestRelease([release('v0.1.0')], '0.1.0-beta.2')).toEqual({ version: '0.1.0', url: 'https://github.com/JackF007/TaBello/releases/tag/v0.1.0' });
+    expect(newestRelease([release('v0.1.0')], '0.1.0-beta.2')).toEqual({ version: '0.1.0', url: 'https://github.com/JackF007/taBello/releases/tag/v0.1.0' });
   });
 
   it('ignores anything that is not one of our release pages', () => {

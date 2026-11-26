@@ -9,14 +9,14 @@
     "email": "45083625+JackF007@users.noreply.github.com",
     "url": "https://github.com/JackF007"
   },
-  "homepage": "https://github.com/JackF007/TaBello",
+  "homepage": "https://github.com/JackF007/taBello",
   "desktopName": "tabello.desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/JackF007/TaBello.git"
+    "url": "https://github.com/JackF007/taBello.git"
   },
   "bugs": {
-    "url": "https://github.com/JackF007/TaBello/issues"
+    "url": "https://github.com/JackF007/taBello/issues"
   },
   "private": true,
   "type": "module",
