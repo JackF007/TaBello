@@ -1,8 +1,17 @@
 # Keeps the GitHub Actions used by the workflows up to date. They are pinned to commits (a tag can be
-# moved, a commit cannot): Dependabot proposes the new commit when an action releases a version.
+# moved, a commit cannot). Once a month at most one pull request, grouping every action, and only for
+# minor versions and fixes: new major versions can change how an action behaves, so they are left to
+# be updated by hand.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ['*']
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
