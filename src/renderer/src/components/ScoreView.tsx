@@ -90,7 +90,7 @@ const SPEEDS = ['0.5', '0.6', '0.75', '0.9', '1'];
 const LENS_RADIUS = 70;
 const LENS_ZOOM = 2.2;
 /** Pixels of the score kept in sight above the line being played. */
-const SCROLL_CONTEXT = 140;
+const SCROLL_CONTEXT = 24;
 
 // Tab numbers take the Guitar Hero fret colors, from the lowest string up.
 const STRING_COLORS = ['#2ee05a', '#ff3355', '#ffd600', '#2e9bff', '#ff8a1f', '#b45cff'];
@@ -129,6 +129,7 @@ interface Box {
  */
 const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected = null, onNoteDrag, dragLabel, previewKey, editKey, neck, controls, toolbar }: ScoreViewProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickyRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<AlphaTabApi | null>(null);
   const [source, setSource] = useState<Source>('synth');
@@ -213,6 +214,23 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
 
   useEffect(updateHighlight, [selected, updateHighlight]);
 
+  /** The line of the score last brought into sight while playing. */
+  const lastLineRef = useRef(-1);
+  /**
+   * Keeps the line being played in sight: when playback moves to a line hidden under the controls or
+   * below the window, the page scrolls to put it just under them, with a little of the score above.
+   */
+  const followLine = useCallback((api: AlphaTabApi, beat: model.Beat) => {
+    const line = api.boundsLookup?.findBeat(beat)?.barBounds.masterBarBounds.staffSystemBounds;
+    const container = containerRef.current;
+    if (!line || !container || line.index === lastLineRef.current) return;
+    lastLineRef.current = line.index;
+    const top = container.getBoundingClientRect().top + line.realBounds.y;
+    const covered = 57 + (stickyRef.current?.offsetHeight ?? 0);
+    if (top >= covered && top + line.realBounds.h <= window.innerHeight) return;
+    window.scrollTo({ top: window.scrollY + top - covered - SCROLL_CONTEXT, behavior: 'smooth' });
+  }, []);
+
   /** Plays the selected note with the transcription's sound. */
   const lastPreviewRef = useRef(0);
   const playSelected = useCallback((api: AlphaTabApi) => {
@@ -285,10 +303,13 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
     api.playerStateChanged.on((e) => {
       setIsPlaying(e.state === synth.PlayerState.Playing);
       // The score follows the cursor once it plays: opened, it stays at its top (title, chord diagrams).
-      if (e.state === synth.PlayerState.Playing) api.settings.player.scrollMode = ScrollMode.Continuous;
+      // The page follows the line played (see followLine): alphaTab's own scrolling would measure
+      // the whole page as its window.
+      if (e.state === synth.PlayerState.Playing) lastLineRef.current = -1;
     });
     // The notes under the cursor, for the neck: a picked note bright, a tied one still ringing.
     api.activeBeatsChanged.on(({ activeBeats }) => {
+      if (activeBeats[0] && api.playerState === synth.PlayerState.Playing) followLine(api, activeBeats[0]);
       const capo = neckRef.current?.capo ?? 0;
       setPlaying(
         activeBeats
@@ -345,7 +366,7 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
       api.destroy();
       apiRef.current = null;
     };
-  }, [source, media, updateHighlight, playSelected]);
+  }, [source, media, updateHighlight, playSelected, followLine]);
 
   useEffect(() => {
     const api = apiRef.current;
@@ -567,10 +588,11 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
   };
 
   return (
-    // Clipped, not hidden: the controls can then stay in sight while the page scrolls.
+    // Clipped, not hidden: the controls and the neck can then stay in sight while the page scrolls.
     <div className="panel overflow-clip">
-      {/* The player's controls and the selected note stay in sight under the app's header. */}
-      <div className="sticky top-[57px] z-30 bg-card/95 backdrop-blur-md">
+      {/* The player's controls, the selected note and the neck stay in sight under the app's header,
+          while the score scrolls with the page under them. */}
+      <div ref={stickyRef} className="sticky top-[57px] z-30 bg-card/95 backdrop-blur-md">
       <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <Button
           onClick={() => apiRef.current?.playPause()}
@@ -685,8 +707,6 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
           {notice}
         </p>
       )}
-      </div>
-
       {neck && showNeck && (
         <div className="border-b bg-[#0d0c1b] px-4 py-2">
           <Fretboard
@@ -705,10 +725,11 @@ const ScoreView = ({ tex, media = null, mediaOffset = 0, onNoteClick, selected =
           />
         </div>
       )}
+      </div>
 
       {error && <p className="px-4 py-3 text-sm text-destructive">Could not render the score: {error}</p>}
 
-      <div ref={scrollRef} className="relative max-h-[70vh] overflow-y-auto bg-[#0d0c1b]">
+      <div ref={scrollRef} className="relative bg-[#0d0c1b]">
         {isRendering && (
           <div className="absolute inset-x-0 top-6 z-10 flex justify-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Rendering score…
