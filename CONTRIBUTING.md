@@ -1,15 +1,16 @@
 # Contributing to TaBello
 
 Thanks for helping! TaBello is a small project, so every bug report, test recording and pull request
-makes a difference.
+makes a difference. Please follow the [code of conduct](CODE_OF_CONDUCT.md); security problems are
+reported privately, as [SECURITY.md](SECURITY.md) explains.
 
 ## Reporting a problem
 
 - **Something broke** (crash, error message, a button that does nothing): open a
-  [bug report](https://github.com/JackF007/taBello/issues/new?template=bug_report.md) with your
+  [bug report](https://github.com/JackF007/TaBello/issues/new?template=bug_report.md) with your
   operating system, the TaBello version (shown at the bottom of the window) and the steps to reproduce.
 - **A transcription came out wrong**: open a
-  [transcription report](https://github.com/JackF007/taBello/issues/new?template=transcription.md).
+  [transcription report](https://github.com/JackF007/TaBello/issues/new?template=transcription.md).
   The most useful thing you can attach is a **short clip** (5–30 seconds) where it goes wrong, plus the
   instrument, tuning, capo and sensitivity you used, and what the correct notes are. Only share audio
   you have the right to share.
@@ -20,8 +21,8 @@ You need [Node.js](https://nodejs.org/) 22.23.4+ or 24.22.1+ (with the October 2
 Redistributable; see the README).
 
 ```sh
-git clone https://github.com/JackF007/taBello.git
-cd taBello
+git clone https://github.com/JackF007/TaBello.git
+cd TaBello
 npm install
 npm run dev
 ```

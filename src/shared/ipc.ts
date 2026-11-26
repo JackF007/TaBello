@@ -57,7 +57,7 @@ export interface Preferences {
 }
 
 /** Where to report a problem (GitHub's issue forms: bug, wrong transcription). */
-export const REPORT_URL = 'https://github.com/JackF007/taBello/issues/new/choose';
+export const REPORT_URL = 'https://github.com/JackF007/TaBello/issues/new/choose';
 
 /** Extensions offered in the file picker. FFmpeg can decode far more, this list only drives the picker. */
 export const MEDIA_EXTENSIONS = [

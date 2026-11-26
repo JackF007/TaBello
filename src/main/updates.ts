@@ -3,7 +3,7 @@
 // can turn off. Nothing is downloaded or installed by itself; the user gets a link to the release.
 import type { UpdateInfo } from '../shared/ipc';
 
-export const RELEASES_API = 'https://api.github.com/repos/JackF007/taBello/releases?per_page=20';
+export const RELEASES_API = 'https://api.github.com/repos/JackF007/TaBello/releases?per_page=20';
 
 interface Version {
   core: number[];
@@ -57,7 +57,8 @@ export function newestRelease(releases: unknown, current: string): UpdateInfo | 
   for (const release of releases as Release[]) {
     if (release.draft === true || typeof release.tag_name !== 'string' || typeof release.html_url !== 'string') continue;
     if (release.prerelease === true && !onBeta) continue;
-    if (!release.html_url.startsWith('https://github.com/JackF007/taBello/releases/')) continue;
+    // GitHub names are case-insensitive: the repository may be written taBello or TaBello.
+    if (!release.html_url.toLowerCase().startsWith('https://github.com/jackf007/tabello/releases/')) continue;
     const version = release.tag_name.replace(/^v/, '');
     if (!parse(version) || compareVersions(version, current) <= 0) continue;
     if (!best || compareVersions(version, best.version) > 0) best = { version, url: release.html_url };

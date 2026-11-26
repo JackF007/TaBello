@@ -3,7 +3,7 @@ import { checkForUpdate, compareVersions, newestRelease } from './updates';
 
 const release = (tag: string, extra: Record<string, unknown> = {}) => ({
   tag_name: tag,
-  html_url: `https://github.com/JackF007/taBello/releases/tag/${tag}`,
+  html_url: `https://github.com/JackF007/TaBello/releases/tag/${tag}`,
   draft: false,
   prerelease: tag.includes('-'),
   ...extra,
@@ -23,7 +23,7 @@ describe('update check', () => {
     const releases = [release('v0.1.0-beta.1'), release('v0.1.0-beta.2'), release('v0.1.0'), release('v0.2.0-beta.1'), release('v0.3.0', { draft: true })];
     expect(newestRelease(releases, '0.1.0-beta.1')?.version).toBe('0.2.0-beta.1');
     expect(newestRelease(releases, '0.1.0')).toBeNull();
-    expect(newestRelease([release('v0.1.0')], '0.1.0-beta.2')).toEqual({ version: '0.1.0', url: 'https://github.com/JackF007/taBello/releases/tag/v0.1.0' });
+    expect(newestRelease([release('v0.1.0')], '0.1.0-beta.2')).toEqual({ version: '0.1.0', url: 'https://github.com/JackF007/TaBello/releases/tag/v0.1.0' });
   });
 
   it('ignores anything that is not one of our release pages', () => {
@@ -39,5 +39,12 @@ describe('update check', () => {
     expect(await checkForUpdate('0.1.0', limited)).toBeNull();
     const ok = (() => Promise.resolve(Response.json([release('v0.2.0')]))) as unknown as typeof fetch;
     expect((await checkForUpdate('0.1.0', ok))?.version).toBe('0.2.0');
+  });
+
+  it('accepts the repository however GitHub writes its name', () => {
+    const lower = { tag_name: 'v0.2.0', html_url: 'https://github.com/jackf007/tabello/releases/tag/v0.2.0', draft: false, prerelease: false };
+    expect(newestRelease([lower], '0.1.0')).toEqual({ version: '0.2.0', url: lower.html_url });
+    const elsewhere = { ...lower, html_url: 'https://github.com/someone/TaBello/releases/tag/v0.2.0' };
+    expect(newestRelease([elsewhere], '0.1.0')).toBeNull();
   });
 });
