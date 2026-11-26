@@ -49,10 +49,21 @@ function notFound(): Response {
   return new Response('Not found', { status: 404 });
 }
 
+/** A URL path decoded, or null when it is not valid percent-encoding. */
+function decodePath(pathname: string): string | null {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
 function handleAppRequest(): void {
   protocol.handle(APP_SCHEME, async (request) => {
     const { host, pathname } = new URL(request.url);
-    const filePath = path.join(RENDERER_DIR, decodeURIComponent(pathname === '/' ? '/index.html' : pathname));
+    const decoded = decodePath(pathname === '/' ? '/index.html' : pathname);
+    if (decoded === null) return notFound();
+    const filePath = path.join(RENDERER_DIR, decoded);
     const relative = path.relative(RENDERER_DIR, filePath);
     if (host !== APP_HOST || relative.startsWith('..') || path.isAbsolute(relative)) return notFound();
 
@@ -72,7 +83,8 @@ function handleMediaRequest(): void {
   protocol.handle(MEDIA_SCHEME, async (request) => {
     const { host, pathname } = new URL(request.url);
     if (host !== 'project') return notFound();
-    const sourcePath = await getProjectSourcePath(decodeURIComponent(pathname.slice(1)));
+    const id = decodePath(pathname.slice(1));
+    const sourcePath = id === null ? null : await getProjectSourcePath(id);
     if (!sourcePath) return notFound();
 
     let size: number;

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session, shell } from 'electron';
 import path from 'node:path';
 import { prepareSeparationModel, registerIpcHandlers, startUpdateCheck } from './ipc';
+import { isExternalLink } from './links';
 import { log, logError, startLog } from './log';
 import { APP_HOST, APP_SCHEME, APP_URL, handleProtocols, registerSchemes } from './protocols';
 import { cancelTranscription } from './transcription/service';
@@ -44,9 +45,10 @@ function createWindow(): BrowserWindow {
 
   window.once('ready-to-show', () => window.show());
 
-  // Links to the outside world open in the user's browser, never inside the app.
+  // Links to the outside world open in the user's browser, never inside the app. TaBello only links
+  // to its GitHub pages (reports, releases): nothing else is opened, whatever a page asks for.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) void shell.openExternal(url);
+    if (isExternalLink(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   // Also blocks the default "navigate to the dropped file" behaviour of drag & drop.
@@ -83,8 +85,8 @@ if (!app.requestSingleInstanceLock()) {
       if (details.reason !== 'clean-exit' && details.reason !== 'killed') log('error', `${details.name ?? details.type} stopped: ${details.reason} (exit code ${details.exitCode})`);
     });
 
-    // TaBello never needs camera, microphone, notifications, etc.
-    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+    // TaBello never needs camera, microphone, notifications, etc.; only the video's full-screen button.
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === 'fullscreen'));
 
     handleProtocols();
     registerIpcHandlers(isTrustedUrl);
