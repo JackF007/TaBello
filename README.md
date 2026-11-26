@@ -109,7 +109,7 @@ check for new versions, which you can turn off.)
 ## Download and install
 
 No programming needed: download the installer for your computer from the
-[Releases page](https://github.com/JackF007/TaBello/releases) (the newest release, under *Assets*),
+[Releases page](https://github.com/JackF007/taBello/releases) (the newest release, under *Assets*),
 open it, and TaBello is ready. It has no account and costs nothing.
 
 | Your computer | File to download | How to install |
@@ -274,8 +274,8 @@ October 2026 security fixes) and Git. On Windows, the
 is also needed to unpack Electron during `npm install`.
 
 ```sh
-git clone https://github.com/JackF007/TaBello.git
-cd TaBello
+git clone https://github.com/JackF007/taBello.git
+cd taBello
 npm install        # also downloads the Electron binary for your OS
 npm run dev        # start the app with hot reload
 ```

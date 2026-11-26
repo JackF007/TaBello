@@ -3,7 +3,7 @@
 // can turn off. Nothing is downloaded or installed by itself; the user gets a link to the release.
 import type { UpdateInfo } from '../shared/ipc';
 
-export const RELEASES_API = 'https://api.github.com/repos/JackF007/TaBello/releases?per_page=20';
+export const RELEASES_API = 'https://api.github.com/repos/JackF007/taBello/releases?per_page=20';
 
 interface Version {
   core: number[];

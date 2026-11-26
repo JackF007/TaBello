@@ -439,7 +439,7 @@ test('offers to download the separation model', async () => {
 test('offers a way to report problems and to turn the update check off', async () => {
   await page.getByRole('link', { name: 'Transcribe', exact: true }).click();
   await expect(page.locator('footer')).toContainText('© 2026 JackF007');
-  await expect(page.getByRole('link', { name: 'Report a problem' })).toHaveAttribute('href', /github\.com\/JackF007\/TaBello\/issues\/new\/choose/);
+  await expect(page.getByRole('link', { name: 'Report a problem' })).toHaveAttribute('href', /github\.com\/JackF007\/taBello\/issues\/new\/choose/);
   await expect(page.getByRole('button', { name: 'Show the log' })).toBeVisible();
   const updates = page.getByRole('button', { name: /Check for updates/ });
   await expect(updates).toHaveText('Check for updates: on');
