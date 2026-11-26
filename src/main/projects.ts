@@ -4,7 +4,7 @@ import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { MAX_NOTES, MAX_TRANSPOSE, PART_IDS, type ClickTrack, type HandVision, type PartId, type NoteEvent, type Project, type ProjectSettings, type ProjectSummary } from '../shared/ipc';
+import { MAX_NOTES, MAX_TRANSPOSE, MAX_VERSIONS, PART_IDS, type ClickTrack, type HandVision, type PartId, type NoteEvent, type NoteVersion, type Project, type ProjectSettings, type ProjectSummary } from '../shared/ipc';
 import { INSTRUMENTS, isInstrumentId, MAX_CAPO, type InstrumentId } from '../shared/instruments';
 import { isMeterId } from '../shared/meters';
 
@@ -27,6 +27,44 @@ function isClickTrack(value: unknown): value is ClickTrack {
 
 /** The notes as transcribed, kept once the user edits notes.json. */
 const ORIGINAL_NOTES = 'notes.original.json';
+/** Versions of the notes saved by the user, and which one notes.json started from. */
+const VERSIONS = 'versions.json';
+
+interface StoredVersions {
+  current: string | null;
+  versions: (NoteVersion & { notes: NoteEvent[] })[];
+}
+
+const VERSION_ID = /^[a-f0-9]{12}$/;
+
+async function readVersions(dir: string): Promise<StoredVersions> {
+  const value = await readFile(path.join(dir, VERSIONS), 'utf8').then((text) => JSON.parse(text) as unknown, () => null);
+  const empty: StoredVersions = { current: null, versions: [] };
+  if (typeof value !== 'object' || value === null) return empty;
+  const { current, versions } = value as Record<string, unknown>;
+  if (!Array.isArray(versions)) return empty;
+  const valid = versions.filter((v: unknown): v is StoredVersions['versions'][number] => {
+    if (typeof v !== 'object' || v === null) return false;
+    const { id, name, createdAt, notes } = v as Record<string, unknown>;
+    return typeof id === 'string' && VERSION_ID.test(id) && typeof name === 'string' && typeof createdAt === 'string' && isValidNotes(notes);
+  });
+  const known = typeof current === 'string' && valid.some((v) => v.id === current);
+  return { current: known ? (current as string) : null, versions: valid.map((v) => ({ ...v, noteCount: v.notes.length })) };
+}
+
+const summarize = ({ versions }: StoredVersions): NoteVersion[] => versions.map(({ id, name, createdAt, noteCount }) => ({ id, name, createdAt, noteCount }));
+
+/** The notes as transcribed: kept aside once notes.json was edited. */
+async function detectedNotes(dir: string): Promise<NoteEvent[]> {
+  const original = await readFile(path.join(dir, ORIGINAL_NOTES), 'utf8').catch(() => readFile(path.join(dir, 'notes.json'), 'utf8'));
+  return JSON.parse(original) as NoteEvent[];
+}
+
+/** Keeps the transcribed notes before notes.json is first overwritten. */
+async function keepDetected(dir: string): Promise<void> {
+  const original = path.join(dir, ORIGINAL_NOTES);
+  if (!(await access(original).then(() => true, () => false))) await writeFile(original, await readFile(path.join(dir, 'notes.json')));
+}
 
 function projectsDir(): string {
   return path.join(app.getPath('userData'), 'projects');
@@ -204,7 +242,9 @@ export async function getProject(id: string): Promise<Project | null> {
   if (!dir || !meta) return null;
   const notes = JSON.parse(await readFile(path.join(dir, 'notes.json'), 'utf8')) as NoteEvent[];
   const exists = (file: string) => access(file).then(() => true, () => false);
-  const [sourceAvailable, edited] = await Promise.all([exists(meta.sourcePath), exists(path.join(dir, ORIGINAL_NOTES))]);
+  const sourceAvailable = await exists(meta.sourcePath);
+  const stored = await readVersions(dir);
+  const baseNotes = stored.current ? stored.versions.find((v) => v.id === stored.current)!.notes : await detectedNotes(dir);
   const metronome = await readFile(path.join(dir, METRONOME), 'utf8').then((text) => JSON.parse(text) as unknown, () => null);
   const vision = await readFile(path.join(dir, VISION), 'utf8').then((text) => JSON.parse(text) as unknown, () => null);
   return {
@@ -212,7 +252,9 @@ export async function getProject(id: string): Promise<Project | null> {
     sourcePath: meta.sourcePath,
     sourceAvailable,
     notes,
-    edited,
+    versions: summarize(stored),
+    currentVersion: stored.current,
+    baseNotes,
     ...(isClickTrack(metronome) ? { metronome } : {}),
     ...(isValidVision(vision) ? { vision } : {}),
   };
@@ -245,25 +287,37 @@ export async function updateProjectNotes(id: string, notes: NoteEvent[]): Promis
   const dir = projectDir(id);
   const meta = dir && (await readMeta(dir));
   if (!dir || !meta) return null;
-  const original = path.join(dir, ORIGINAL_NOTES);
-  const hasOriginal = await access(original).then(() => true, () => false);
-  if (!hasOriginal) await writeFile(original, await readFile(path.join(dir, 'notes.json')));
+  await keepDetected(dir);
   await writeJsonAtomic(path.join(dir, 'notes.json'), notes);
   const updated: StoredMeta = { ...meta, noteCount: notes.length, updatedAt: new Date().toISOString() };
   await writeJsonAtomic(path.join(dir, 'meta.json'), updated);
   return toSummary(updated);
 }
 
-/** Restores the transcribed notes. */
-export async function resetProjectNotes(id: string): Promise<NoteEvent[] | null> {
+/** Saves the notes as a new version ("Version 1", "Version 2"…), which becomes the current one. */
+export async function saveNoteVersion(id: string, notes: NoteEvent[]): Promise<{ versions: NoteVersion[]; currentVersion: string } | null> {
   const dir = projectDir(id);
-  const meta = dir && (await readMeta(dir));
-  if (!dir || !meta) return null;
-  const original = path.join(dir, ORIGINAL_NOTES);
-  const hasOriginal = await access(original).then(() => true, () => false);
-  if (hasOriginal) await rename(original, path.join(dir, 'notes.json'));
-  const notes = JSON.parse(await readFile(path.join(dir, 'notes.json'), 'utf8')) as NoteEvent[];
-  await writeJsonAtomic(path.join(dir, 'meta.json'), { ...meta, noteCount: notes.length, updatedAt: new Date().toISOString() });
+  if (!dir || !(await readMeta(dir))) return null;
+  const stored = await readVersions(dir);
+  const number = stored.versions.reduce((n, v) => Math.max(n, Number(/^Version (\d+)$/.exec(v.name)?.[1] ?? 0)), 0) + 1;
+  const version = { id: randomUUID().replace(/-/g, '').slice(0, 12), name: `Version ${number}`, createdAt: new Date().toISOString(), noteCount: notes.length, notes };
+  // The oldest go first when there are too many.
+  const next: StoredVersions = { current: version.id, versions: [...stored.versions, version].slice(-MAX_VERSIONS) };
+  await updateProjectNotes(id, notes);
+  await writeJsonAtomic(path.join(dir, VERSIONS), next);
+  return { versions: summarize(next), currentVersion: version.id };
+}
+
+/** Makes a version current (null: the notes as transcribed), and returns its notes. */
+export async function loadNoteVersion(id: string, versionId: string | null): Promise<NoteEvent[] | null> {
+  const dir = projectDir(id);
+  if (!dir || !(await readMeta(dir))) return null;
+  const stored = await readVersions(dir);
+  const version = versionId === null ? null : stored.versions.find((v) => v.id === versionId);
+  if (version === undefined) return null;
+  const notes = version ? version.notes : await detectedNotes(dir);
+  await updateProjectNotes(id, notes);
+  await writeJsonAtomic(path.join(dir, VERSIONS), { ...stored, current: version ? version.id : null });
   return notes;
 }
 

@@ -87,7 +87,11 @@ check for new versions, which you can turn off.)
   string (the same note, played elsewhere), sideways it moves in time. A lens magnifies the staff where
   it lands, ledger lines included, and names the note; you hear the new note. Choose its value (whole,
   half, quarter, eighth, sixteenth, dotted or not), or move it to another place on the neck by picking
-  one of the dashed circles there. Undo, or restore the detected notes, at any time.
+  one of the dashed circles there. Undo at any time.
+- **Versions**: edits are a draft until you confirm them with *Save version* (Ctrl+S), which keeps them
+  as Version 1, Version 2…; the *Versions* menu goes back to any of them, or to the notes as detected.
+  Nothing is lost if you close TaBello before saving: the draft waits for you. Export writes the
+  version on screen, and the file is named after it.
 - **Export** to Guitar Pro 7 (`.gp` — opens in Guitar Pro, MuseScore, TuxGuitar), MIDI (`.mid`) and
   alphaTex.
 - **A local library** of all your transcriptions, settings and edits included.
@@ -160,9 +164,11 @@ You can also run TaBello from source (see [Development](#development)).
      is played — also shown on the neck as dashed circles to click. Keys: ↑/↓ semitones,
      Alt+↑/↓ another string, digits type a fret, Delete removes it, Esc deselects, Ctrl+Z undoes. While
      you follow the original recording, an edit switches the player to the transcription, so you hear
-     it. *Restore detected notes* brings back the original transcription.
+     it. Your edits show as *Unsaved changes*: **Save version** (Ctrl+S) confirms them as a new version,
+     *Discard* goes back. The **Versions** menu, next to Export, opens any saved version or the notes
+     as detected.
 4. **Export** to Guitar Pro or MIDI to keep editing in your favorite program (the menu says what each
-   format is for).
+   format is for, and which version it exports).
 
 Keyboard: Space plays and pauses.
 

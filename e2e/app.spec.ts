@@ -209,9 +209,80 @@ test('transcribes a video into a playable, exportable score', async () => {
   await page.getByRole('button', { name: 'Count-in' }).click();
   await expect(page.getByRole('button', { name: 'Count-in' })).toHaveAttribute('aria-pressed', 'true');
 
-  await page.getByRole('button', { name: 'Restore detected notes' }).click();
-  await expect(page.getByRole('button', { name: 'Restore detected notes' })).toBeHidden();
+  // Edits are a draft until saved as a version: Save version is the OK that confirms them.
+  await expect(page.getByTestId('unsaved')).toBeVisible();
+  await expect(page.getByTestId('version-name')).toHaveText('Detected');
+  await page.getByRole('button', { name: 'Save version' }).click();
+  await expect(page.getByTestId('version-name')).toHaveText('Version 1');
+  await expect(page.getByTestId('unsaved')).toBeHidden();
+  // A second version: one more semitone on a note, saved with Ctrl+S.
+  await page.locator(`.at-surface svg text:is(${stringColors})`, { hasText: /^\d+$/ }).first().click();
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByTestId('unsaved')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('version-name')).toHaveText('Version 2');
   await page.keyboard.press('Escape');
+
+  // Each version exports as it is, in a file named after it.
+  /** Exports the notes on screen as MIDI into `file`; returns the file name the dialog suggested. */
+  const exportMidi = async (file: string, label: string) => {
+    await app.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = (async (...args: unknown[]) => {
+        (globalThis as { suggested?: string }).suggested = (args.at(-1) as { defaultPath?: string }).defaultPath;
+        return { canceled: false, filePath };
+      }) as never;
+    }, file);
+    await page.getByRole('button', { name: 'Export' }).click();
+    // The menu says which version it exports.
+    await expect(page.getByTestId('export-version')).toContainText(label);
+    await page.getByRole('menuitem', { name: /MIDI/ }).click();
+    await expect.poll(() => existsSync(file) && statSync(file).size).toBeGreaterThan(50);
+    return path.basename((await app.evaluate(() => (globalThis as { suggested?: string }).suggested))!);
+  };
+  const exported: Record<string, Buffer> = {};
+  for (const version of ['Detected', 'Version 1', 'Version 2']) {
+    await page.getByRole('button', { name: 'Versions' }).click();
+    await page.getByRole('menuitem', { name: new RegExp(`^${version}`) }).click();
+    await expect(page.getByTestId('version-name')).toHaveText(version);
+    const file = path.join(dir, `${version}.mid`);
+    expect(await exportMidi(file, version === 'Detected' ? 'the detected notes' : version)).toBe(version === 'Detected' ? 'arpeggio.mid' : `arpeggio (${version}).mid`);
+    exported[version] = readFileSync(file);
+  }
+  expect(exported['Version 1'].equals(exported['Detected'])).toBe(false);
+  expect(exported['Version 2'].equals(exported['Version 1'])).toBe(false);
+
+  // Unsaved changes are kept when leaving the project, and asked about before opening another version.
+  // (alphaTab draws only the part of the score in sight: back to its top for its first note.)
+  const toScoreTop = async () => {
+    await page.evaluate(() => {
+      const surface = document.querySelector('.at-surface')!;
+      surface.closest('.overflow-y-auto')?.scrollTo(0, 0);
+      window.scrollTo(0, surface.getBoundingClientRect().top + window.scrollY - 250);
+    });
+    await expect(page.locator(`.at-surface svg text:is(${stringColors})`).first()).toBeAttached();
+  };
+  await toScoreTop();
+  await page.locator(`.at-surface svg text:is(${stringColors})`, { hasText: /^\d+$/ }).first().click();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('unsaved')).toBeVisible();
+  const draft = await page.getByTestId('selected-note-info').textContent();
+  await page.waitForTimeout(1000);
+  await page.getByRole('link', { name: 'Library' }).first().click();
+  await page.getByRole('link', { name: 'Open arpeggio' }).click();
+  await expect(page.getByTestId('version-name')).toHaveText('Version 2');
+  await expect(page.getByTestId('unsaved')).toBeVisible();
+  await toScoreTop();
+  await page.locator(`.at-surface svg text:is(${stringColors})`, { hasText: /^\d+$/ }).first().click();
+  await expect(page.getByTestId('selected-note-info')).toHaveText(draft!);
+  await page.getByRole('button', { name: 'Versions' }).click();
+  await page.getByRole('menuitem', { name: /^Version 1/ }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('not saved as a version yet');
+  await page.getByRole('button', { name: 'Discard them' }).click();
+  await expect(page.getByTestId('version-name')).toHaveText('Version 1');
+  await expect(page.getByTestId('unsaved')).toBeHidden();
+  await page.getByRole('button', { name: 'Versions' }).click();
+  await page.getByRole('menuitem', { name: /^Detected/ }).click();
+  await expect(page.getByTestId('version-name')).toHaveText('Detected');
 
   // Changing settings re-renders the score; the guitar's notes are written for the ukulele at once.
   await page.getByRole('button', { name: 'Tempo' }).click();
