@@ -11,7 +11,7 @@ check for new versions, which you can turn off.)
 > **Public beta.** TaBello is in beta (0.1.0-beta): it works, and it still has rough edges. Please
 > report what goes wrong with *Report a problem* at the bottom of the app.
 
-![TaBello transcribing Greensleeves, then playing the tab with its cursor](docs/screenshots/demo.gif)
+![TaBello trying Greensleeves, then playing it along the recording: the notes light up on the neck](docs/screenshots/demo.gif)
 
 ## Features
 
@@ -102,14 +102,14 @@ check for new versions, which you can turn off.)
 
 ![Everything TaBello writes for you, on the home page](docs/screenshots/features.png)
 
-| Capo and chords detected on a strummed part | Editing a ukulele tab |
+| What was detected, as chips; the neck lights up as it plays | Dragging a note: the lens shows where it lands |
 | --- | --- |
-| ![Project page with its settings, the capo and chord diagrams](docs/screenshots/project-capo.png) | ![Editing a note in a ukulele tab](docs/screenshots/ukulele-tab.png) |
+| ![Project page while playing: detected settings, the neck and the score](docs/screenshots/project-capo.png) | ![Dragging a note of a ukulele tab, magnified by the lens](docs/screenshots/ukulele-tab.png) |
 
 ## Download and install
 
 No programming needed: download the installer for your computer from the
-[Releases page](https://github.com/JackF007/taBello/releases) (the newest release, under *Assets*),
+[Releases page](https://github.com/JackF007/TaBello/releases) (the newest release, under *Assets*),
 open it, and TaBello is ready. It has no account and costs nothing.
 
 | Your computer | File to download | How to install |
@@ -274,8 +274,8 @@ October 2026 security fixes) and Git. On Windows, the
 is also needed to unpack Electron during `npm install`.
 
 ```sh
-git clone https://github.com/JackF007/taBello.git
-cd taBello
+git clone https://github.com/JackF007/TaBello.git
+cd TaBello
 npm install        # also downloads the Electron binary for your OS
 npm run dev        # start the app with hot reload
 ```
@@ -463,7 +463,9 @@ download page.
 
 ## Contributing
 
-Bug reports, transcription examples and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, transcription examples and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md)
+and the [code of conduct](CODE_OF_CONDUCT.md). Security problems: please report them privately, see
+[SECURITY.md](SECURITY.md). What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 For a transcription that came out wrong, a short clip (a few seconds) plus the settings you used helps most.
 
 ## License
