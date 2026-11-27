@@ -22,6 +22,8 @@ test.beforeAll(async () => {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(dir, 'arpeggio.mp4'));
   ffmpeg('-f', 'lavfi', '-i', 'sine=f=196:d=240', path.join(dir, 'long.wav'));
   writeFileSync(path.join(dir, 'not-audio.mp3'), 'not audio');
+  // Decodes fine, but there is no music in it: a few seconds of noise.
+  ffmpeg('-f', 'lavfi', '-i', 'anoisesrc=color=pink:amplitude=0.5:d=6:r=44100', path.join(dir, 'noise.wav'));
 
   // A project saved by an older version with an instrument that is no longer supported.
   const legacyDir = path.join(dir, 'user-data', 'projects', 'a'.repeat(32));
@@ -334,6 +336,17 @@ test('cancels a running transcription', async () => {
 test('explains files that cannot be read', async () => {
   await page.setInputFiles('#file-upload', path.join(dir, 'not-audio.mp3'));
   await expect(page.getByRole('alert').filter({ hasText: 'Could not transcribe not-audio.mp3' })).toBeVisible({ timeout: 30_000 });
+});
+
+test('rejects a recording with no music in it', async () => {
+  await page.reload();
+  await page.setInputFiles('#file-upload', path.join(dir, 'noise.wav'));
+  const alert = page.getByRole('alert').filter({ hasText: 'Could not transcribe noise.wav' });
+  await expect(alert).toBeVisible({ timeout: 30_000 });
+  await expect(alert).toContainText('could not find any instrument');
+  // No project was created for it.
+  await page.getByRole('link', { name: 'Library' }).first().click();
+  await expect(page.getByRole('link', { name: /Open noise/ })).toHaveCount(0);
 });
 
 test('transcribes a bundled sample', async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, ChevronDown, Download, History, Loader2, Minus, Plus, Sparkles, Timer, Trash2, Undo2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, Download, History, Loader2, Minus, Plus, Sparkles, Timer, Trash2, Undo2, X } from 'lucide-react';
 import InstrumentIcon from '@/components/InstrumentIcon';
 import NoteValueIcon from '@/components/NoteValueIcon';
 import ScoreView, { type NoteDrag } from '@/components/ScoreView';
@@ -43,6 +43,7 @@ import { toGuitarPro } from '@/lib/music/guitarPro';
 import { clickBarPhase, clickGrid, detectTempoChanges } from '@/lib/music/tempo';
 import { alphaTexPitch, detectKey, detectMeter, estimateTempo, makeKey } from '@/lib/music/theory';
 import { MAX_TRANSPOSE, projectMediaUrl, type PartId, type ExportFormat, type HandVision, type NoteEvent, type Project, type ProjectSettings } from '../../../shared/ipc';
+import { assessNotes } from '../../../shared/music-signal';
 import { getTuning, INSTRUMENTS, MAX_CAPO, samePart, type InstrumentId } from '../../../shared/instruments';
 import { METERS, type MeterId } from '../../../shared/meters';
 
@@ -958,6 +959,20 @@ const ProjectEditor = ({ project }: { project: Project }) => {
           </>
         }
       />
+
+      {assessNotes(notes, project.durationSeconds) === 'thin' && (
+        <div
+          className="flex items-start gap-2 rounded-xl border border-gh-yellow/50 bg-gh-yellow/10 px-4 py-3 text-sm text-gh-yellow"
+          role="status"
+          data-testid="thin-warning"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            Very little was found in this recording — it may not be a clear recording of an instrument, or the wrong
+            instrument may be selected. Check it by ear, or go back and try another file.
+          </span>
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Automatic transcription is a starting point: check it by ear.{' '}

@@ -247,7 +247,7 @@ export interface ExportRequest {
   data: Uint8Array;
 }
 
-export type ErrorCode = 'cancelled' | 'busy' | 'no-audio' | 'too-long' | 'not-found' | 'invalid' | 'failed';
+export type ErrorCode = 'cancelled' | 'busy' | 'no-audio' | 'no-music' | 'too-long' | 'not-found' | 'invalid' | 'failed';
 
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: { code: ErrorCode; message: string } };
 

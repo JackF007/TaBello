@@ -6,6 +6,7 @@ import { MAX_SEPARATION_SECONDS, type ClickTrack } from '../../shared/ipc';
 import { INSTRUMENTS } from '../../shared/instruments';
 import { DEMUCS_SAMPLE_RATE, halveSampleRate, separateSource } from '../separation/demucs';
 import type { WorkerMessage, WorkerRequest } from './messages';
+import { assessNotes } from '../../shared/music-signal';
 import { decodeAudio, detectNotes, PipelineError, SAMPLE_RATE } from './pipeline';
 
 const post = (message: WorkerMessage) => process.parentPort.postMessage(message);
@@ -62,7 +63,16 @@ process.parentPort.once('message', async ({ data }: { data: WorkerRequest }) => 
       onMetronome: (found) => (metronome = found),
     });
 
-    post({ type: 'result', notes, durationSeconds: audio.length / SAMPLE_RATE, ...(metronome ? { metronome } : {}) });
+    const durationSeconds = audio.length / SAMPLE_RATE;
+    // Nothing musical in the file (speech, noise, silence, or something that is not a recording at
+    // all): there is no transcription to show.
+    if (assessNotes(notes, durationSeconds) === 'none') {
+      throw new PipelineError(
+        'no-music',
+        'TaBello could not find any instrument in this recording. Make sure it is music — not speech, noise or silence — and that the right instrument is selected.',
+      );
+    }
+    post({ type: 'result', notes, durationSeconds, ...(metronome ? { metronome } : {}) });
   } catch (error) {
     if (error instanceof PipelineError) {
       post({ type: 'error', code: error.code, message: error.message });
